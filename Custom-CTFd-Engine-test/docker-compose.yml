@@ -1,0 +1,139 @@
+version: '2.1'
+
+services:
+  proxy:
+    image: nginx:alpine
+    restart: always
+    # Included NGINX config used hostname to determine what it's server_name will be 
+    # Either set NGINX_HOSTNAME to it's public DNS name, change this line, or the config
+    hostname: ${NGINX_HOSTNAME:-localhost}
+    ports:
+      - "80:8000"
+      - "443:8443"
+    volumes:
+      - ./ssl:/etc/ssl:ro # Change this to match where your certificates are. Look at and adjust names in nginx.conf
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - .data/nginx/logs:/var/log/nginx
+    networks:
+      default:
+      internal:
+    depends_on:
+      - ctfd
+  
+  db:
+    image: mariadb:10.4
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=ctfd
+      - MYSQL_USER=ctfd
+      - MYSQL_PASSWORD=ctfd
+    volumes:
+      - .data/mysql:/var/lib/mysql
+    networks:
+        internal:
+    # This command is required to set important mariadb defaults
+    command: [mysqld, --character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --wait_timeout=28800, --log-warnings=0]
+  
+  
+  ctfd:
+    build: .
+    restart: always
+    expose:
+      - "8000"
+    environment:
+      - UPLOAD_FOLDER=/var/uploads
+      - DATABASE_URL=mysql+pymysql://root:ctfd@db/ctfd
+      - REDIS_URL=redis://cache:6379
+      - WORKERS=1
+      - USE_SSL=false
+      - REVERSE_PROXY=true
+      - LOG_FOLDER=/var/log/CTFd
+      - ACCESS_LOG=-
+      - ERROR_LOG=-
+      - UPDATE_CHECK=true
+    volumes:
+      - .data/CTFd/logs:/var/log/CTFd
+      - .data/CTFd/uploads:/var/uploads
+      - .:/opt/CTFd
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    depends_on:
+      - db
+    networks:
+        default:
+        internal:
+
+  cache:
+    image: redis:4
+    restart: always
+    volumes:
+    - .data/redis:/data
+    networks:
+        internal:
+
+  server-skr:
+    container_name: "server-skr"
+    build: ./server-skr
+    #expose:
+    #  - "22"
+    ports:
+      - "5000:22"
+    hostname: "server-skr"
+    volumes:
+      - "./server-skr/home:/home"
+      - "./server-skr/ctfuser:/ctfuser"
+      - "./server-skr/motd:/etc/motd"
+    command: bash -c "cp /ctfuser/passwd /etc/passwd;cp /ctfuser/group /etc/group;cp /ctfuser/shadow /etc/shadow;/usr/sbin/sshd -D"
+    #networks:
+    #  internal:
+  
+  webshell:
+    container_name: "webshell"
+    build: ./webshell
+    environment:
+      - ALLOWED_NETWORKS=0.0.0.0/0
+      - SSH_PORT=22
+      - DEFAULT_IP=server-skr
+
+  netcat-container:
+    container_name: "netcat-container"
+    build: ./netcat-container
+    ports:
+      - "3017:2000"
+      - "3018:2001"
+      - "3003:2002"
+      - "3005:2003"
+      - "3019:2004"
+      - "3008:2005"
+      - "3010:2006"
+      - "3016:2007"
+      - "3013:2008"
+      - "3012:2009"
+      - "3020:2010"
+      #- "3021:2011"
+      - "3014:2011"
+      - "3022:2012"
+      - "3023:2013"
+      - "3021:2014"
+
+  # linux2:
+  #   container_name: "linux2"
+  #   build: ../linux2/
+  #   hostname: "linux-tutorial2"
+  #   ports:
+  #     - "3015:2000"
+
+  # xmas:
+  #   container_name: "xmas"
+  #   build: ../challenges/xmas
+  #   hostname: "xmas"
+  #   environment: 
+  #     - FLAG=SKR{flag}
+  #   ports:
+  #     - "3024:2000"
+
+networks:
+    default:
+    internal:
+        internal: true
